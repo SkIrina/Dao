@@ -11,13 +11,13 @@ contract Dao {
     address public chairman;
     mapping(address => uint) public deposits;
     mapping(uint => Proposal) public proposals;
-    mapping (address => uint[]) public votingRegister;
+    mapping (address => uint) public withdrawalTime;
     uint private currentProposalId;
 
     struct Proposal {
         uint startedTime;
-        bool open;
         string description;
+        bool open;
         address recipient;
         uint votedYes;
         uint votedNo;
@@ -26,6 +26,10 @@ contract Dao {
     }
 
     event ProposalFinished(uint proposalID, bool result, uint quorum, string comment);
+    event Deposit(address voter, uint amount);
+    event Withdraw(address voter, uint amount);
+    event AddProposal(uint proposalId, bytes callData, address _recipient, string description, uint starttime);
+    event Vote(address voter, uint amount, uint _proposalID, bool isSupport);
 
     modifier onlyChairman {
         require(msg.sender == chairman, "Not the chairman");
@@ -50,18 +54,14 @@ contract Dao {
     function deposit(uint amount) public {
         deposits[msg.sender] += amount;
         token.transferFrom(msg.sender, address(this), amount);
+        emit Deposit(msg.sender, amount);
     }
 
     function withdraw() public {
         require(deposits[msg.sender] > 0, "No deposit to withdraw");
-        bool result = false;
-        for (uint i = 0; i < votingRegister[msg.sender].length; i++) {
-            Proposal storage p = proposals[votingRegister[msg.sender][i]];
-            result = result || p.open;
-        }
-        if (!result) {
-            token.transfer(msg.sender, deposits[msg.sender]);
-        }
+        require(withdrawalTime[msg.sender] < block.timestamp, "Voting not finished yet, can't withdraw");
+        token.transfer(msg.sender, deposits[msg.sender]);
+        emit Withdraw(msg.sender, deposits[msg.sender]);
     }
 
     function addProposal(bytes memory callData, address _recipient, string memory description) public onlyChairman returns (uint256){
@@ -72,6 +72,7 @@ contract Dao {
         p.open = true;
         p.description = description;
         p.recipient = _recipient;
+        emit AddProposal(currentProposalId, callData, _recipient, description, block.timestamp);
         return currentProposalId;
     }
 
@@ -88,7 +89,10 @@ contract Dao {
             proposals[_proposalID].votedNo += votes;
         }
         proposals[_proposalID].voters[msg.sender] = true;
-        votingRegister[msg.sender].push(_proposalID);
+        if (withdrawalTime[msg.sender] < proposals[_proposalID].startedTime + _debatingDuration) {
+            withdrawalTime[msg.sender] = proposals[_proposalID].startedTime + _debatingDuration;
+        }
+        emit Vote(msg.sender, votes, _proposalID, isSupport);
     }
 
     function finishProposal(uint _proposalID) public {
@@ -99,20 +103,20 @@ contract Dao {
         proposals[_proposalID].open = false;
         uint quorum = proposals[_proposalID].votedNo + proposals[_proposalID].votedYes;
 
-        if (quorum < _minQuorum) {
-            emit ProposalFinished(_proposalID, false, quorum, "Quorum is not present");
-            return;
-        }
-        if (proposals[_proposalID].votedNo > proposals[_proposalID].votedYes) {
-            emit ProposalFinished(_proposalID, false, quorum, "Quorum voted against");
-            return;
+        bool result = quorum >= _minQuorum;
+        string memory comment = "Quorum is not present";
+
+        if (result) {
+            result = proposals[_proposalID].votedNo < proposals[_proposalID].votedYes;
+            comment = "Quorum voted against";
         }
 
-        if (callTest(proposals[_proposalID].recipient, proposals[_proposalID].callData) == true) {
-            emit ProposalFinished(_proposalID, true, quorum, "Quorum voted pro and call data executed");
-        } else {
-            emit ProposalFinished(_proposalID, false, quorum, "Call to contract failed");
+        if (result) {
+            result = callTest(proposals[_proposalID].recipient, proposals[_proposalID].callData);
+            comment = result ? "Quorum voted pro and call data executed" : "Call to contract failed";
         }
+
+        emit ProposalFinished(_proposalID, result, quorum, comment);
         return;
     }
 

@@ -1,3 +1,3 @@
 # Dao
  
-const contractAddress = "0xD613f8824B02fd3D6Ca764cb7d98c527eeA24647";
+Dao deployed to: 0xcaCcfb97Fe184Ed064FDF0197B86BcDfeEAAf6e7

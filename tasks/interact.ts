@@ -44,3 +44,23 @@ task("deposit", "Deposit tokens to take part in the voting")
     });
     console.log(`Transaction Hash: ${transactionResponse.hash}`);
 });
+
+task("setMinQuorum", "Set minimal quorum for the voting - owner only")
+.addParam("amount", "Token amount for minimal quorum")
+.setAction(async function ({ amount }, { ethers }) {
+    const Dao = await ethers.getContractAt("Dao", contractAddress);
+    const transactionResponse = await Dao.setMinQuorum(amount, {
+        gasLimit: 500_000,
+    });
+    console.log(`Transaction Hash: ${transactionResponse.hash}`);
+});
+
+task("setDebatePeriod", "Set debate period for the voting - owner only")
+.addParam("period", "Debate period for the voting in seconds")
+.setAction(async function ({ period }, { ethers }) {
+    const Dao = await ethers.getContractAt("Dao", contractAddress);
+    const transactionResponse = await Dao.setDebatePeriod(period, {
+        gasLimit: 500_000,
+    });
+    console.log(`Transaction Hash: ${transactionResponse.hash}`);
+});

@@ -101,6 +101,12 @@ describe("My awesome dao contract", function () {
       await dao.connect(voter1).deposit(50);
       expect(await dao.deposits(voter1.address)).to.equal(100);
     });
+
+    it("Should emit deposit event", async function () {
+      await expect(dao.connect(voter1).deposit(50))
+        .to.emit(dao, 'Deposit')
+        .withArgs(voter1.address, 50);
+    });
   });
 
   describe("addProposal", function () {
@@ -118,6 +124,21 @@ describe("My awesome dao contract", function () {
       expect((await dao.proposals(1)).open).to.equal(true);
       expect((await dao.proposals(1)).callData).to.equal(calldata);
       expect((await dao.proposals(1)).recipient).to.equal(recipient);
+    });
+
+    it("Should emit addProposal event", async function () {
+      // Get the block number
+      ethers.provider.getBlockNumber().then(function (blockNumber) {
+
+        // getBlock returns a block object and it has a timestamp property.
+        ethers.provider.getBlock(blockNumber).then(async function (block) {
+
+          const timestamp = block.timestamp;
+          await expect(dao.connect(chair).addProposal(calldata, recipient, "Lets increase the transfer fee!"))
+            .to.emit(dao, 'AddProposal')
+            .withArgs(1, calldata, recipient, "Lets increase the transfer fee!", timestamp);
+        })
+      });
     });
   });
 
@@ -158,6 +179,15 @@ describe("My awesome dao contract", function () {
       await dao.connect(voter1).deposit(50);
       await dao.connect(chair).addProposal(calldata, recipient, "Lets increase the transfer fee!");
       await expect(dao.connect(voter1).vote(1, true)).to.not.be.reverted;
+    });
+
+    it("Should emit vote event", async function () {
+      await dao.connect(voter1).deposit(50);
+      await dao.connect(chair).addProposal(calldata, recipient, "Lets increase the transfer fee!");
+
+      await expect(dao.connect(voter1).vote(1, true))
+        .to.emit(dao, 'Vote')
+        .withArgs(voter1.address, 50, 1, true);
     });
   });
 
@@ -247,7 +277,15 @@ describe("My awesome dao contract", function () {
 
   describe("withdraw", function () {
     it("Should not let withdraw if proposal not finished", async function () {
+      await dao.connect(chair).addProposal(calldata, recipient, "Lets increase the transfer fee!");
       await dao.connect(voter1).deposit(50);
+      await dao.connect(voter1).vote(1, true);
+
+      await ethers.provider.send("evm_increaseTime", [500]);
+      await ethers.provider.send("evm_mine", []);
+
+      await expect(dao.connect(voter1).withdraw())
+      .to.be.revertedWith("Voting not finished yet, can't withdraw");
     });
 
     it("Should let withdraw if not voted", async function () {
@@ -265,6 +303,40 @@ describe("My awesome dao contract", function () {
 
       await dao.finishProposal(1);
       await expect((await dao.connect(voter1).withdraw()).wait()).to.not.be.reverted;
+    });
+
+    it("Should not let withdraw if second proposal is not finished", async function () {
+      await dao.connect(chair).addProposal(calldata, recipient, "Lets increase the transfer fee!");
+      await dao.connect(voter1).deposit(50);
+      await dao.connect(voter1).vote(1, true);
+
+      await ethers.provider.send("evm_increaseTime", [50]);
+      await ethers.provider.send("evm_mine", []);
+
+      await dao.connect(chair).addProposal(calldata, recipient, "Lets increase the transfer fee again!");
+      await dao.connect(voter1).vote(2, false);
+
+      // first proposal finished, second is not
+      await ethers.provider.send("evm_increaseTime", [550]);
+      await ethers.provider.send("evm_mine", []);
+
+      await dao.finishProposal(1);
+      await expect(dao.connect(voter1).withdraw())
+        .to.be.revertedWith("Voting not finished yet, can't withdraw");
+    });
+
+    it("Should emit withdraw event", async function () {
+      await dao.connect(chair).addProposal(calldata, recipient, "Lets increase the transfer fee!");
+      await dao.connect(voter1).deposit(50);
+      await dao.connect(voter1).vote(1, true);
+
+      await ethers.provider.send("evm_increaseTime", [10000]);
+      await ethers.provider.send("evm_mine", []);
+
+      await dao.finishProposal(1);
+      await expect(dao.connect(voter1).withdraw())
+        .to.emit(dao, 'Withdraw')
+        .withArgs(voter1.address, 50);
     });
   });
 
